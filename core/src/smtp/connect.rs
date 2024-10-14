@@ -36,8 +36,8 @@ use crate::{
 };
 
 // Define a new trait that combines AsyncRead, AsyncWrite, and Unpin
-trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {}
-impl<T: AsyncRead + AsyncWrite + Unpin> AsyncReadWrite for T {}
+trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncReadWrite for T {}
 
 /// Try to send an smtp command, close and return Err if fails.
 macro_rules! try_smtp (
@@ -53,12 +53,12 @@ macro_rules! try_smtp (
 );
 
 /// Attempt to connect to host via SMTP, and return SMTP client on success.
-async fn connect_to_host<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
+async fn connect_to_host(
 	domain: &str,
 	host: &str,
 	port: u16,
 	input: &CheckEmailInput,
-) -> Result<SmtpTransport<S>, SmtpError> {
+) -> Result<SmtpTransport<BufStream<Box<dyn AsyncReadWrite>>>, SmtpError> {
 	let smtp_timeout = if let Some(t) = input.smtp_timeout {
 		if has_rule(domain, host, &Rule::SmtpTimeout45s) {
 			let duration = t.max(Duration::from_secs(45));
@@ -79,36 +79,22 @@ async fn connect_to_host<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	// SOCKS5 proxies we can `io: incomplete` error.
 	let host = host.trim_end_matches('.').to_string();
 
-	// TODO
-	// let security = {
-	// 	let tls_params: ClientTlsParameters = ClientTlsParameters::new(
-	// 		host.clone(),
-	// 		TlsConnector::new()
-	// 			.use_sni(true)
-	// 			.danger_accept_invalid_certs(true)
-	// 			.danger_accept_invalid_hostnames(true),
-	// 	);
-
-	// 	input.smtp_security.to_client_security(tls_params)
-	// };
-
-	let mut smtp_client = SmtpClient::new().hello_name(ClientId::Domain(input.hello_name.clone()));
+	let smtp_client = SmtpClient::new().hello_name(ClientId::Domain(input.hello_name.clone()));
 	// TODO .timeout(smtp_timeout);
 
 	let stream: BufStream<Box<dyn AsyncReadWrite>> = if let Some(proxy) = &input.proxy {
-		let proxy_addr = format!("{}:{}", proxy.host, proxy.port);
 		let target_addr = format!("{}:{}", host, port);
 		let socks_stream = match (&proxy.username, &proxy.password) {
 			(Some(username), Some(password)) => {
 				Socks5Stream::connect_with_password(
-					proxy_addr.into(),
+					(proxy.host.as_ref(), proxy.port),
 					target_addr,
 					username,
 					password,
 				)
 				.await?
 			}
-			_ => Socks5Stream::connect(proxy_addr.into(), target_addr).await?,
+			_ => Socks5Stream::connect((proxy.host.as_ref(), proxy.port), target_addr).await?,
 		};
 		BufStream::new(Box::new(socks_stream) as Box<dyn AsyncReadWrite>)
 	} else {
@@ -266,7 +252,7 @@ async fn smtp_is_catch_all<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	.map(|deliverability| deliverability.is_deliverable)
 }
 
-async fn create_smtp_future<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
+async fn create_smtp_future(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,
@@ -275,7 +261,7 @@ async fn create_smtp_future<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 ) -> Result<(bool, Deliverability), SmtpError> {
 	// FIXME If the SMTP is not connectable, we should actually return an
 	// Ok(SmtpDetails { can_connect_smtp: false, ... }).
-	let mut smtp_transport = connect_to_host::<S>(domain, host, port, input).await?;
+	let mut smtp_transport = connect_to_host(domain, host, port, input).await?;
 
 	let is_catch_all = smtp_is_catch_all(&mut smtp_transport, domain, host, input)
 		.await
@@ -319,14 +305,14 @@ async fn create_smtp_future<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 
 /// Get all email details we can from one single `EmailAddress`, without
 /// retries.
-async fn check_smtp_without_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
+async fn check_smtp_without_retry(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,
 	domain: &str,
 	input: &CheckEmailInput,
 ) -> Result<SmtpDetails, SmtpError> {
-	let fut = create_smtp_future::<S>(to_email, host, port, domain, input);
+	let fut = create_smtp_future(to_email, host, port, domain, input);
 	let (is_catch_all, deliverability) = fut.await?;
 
 	Ok(SmtpDetails {
@@ -341,7 +327,7 @@ async fn check_smtp_without_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 /// Get all email details we can from one single `EmailAddress`.
 /// Retry the SMTP connection on error, in particular to avoid greylisting.
 #[async_recursion]
-pub async fn check_smtp_with_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
+pub async fn check_smtp_with_retry(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,
@@ -358,7 +344,7 @@ pub async fn check_smtp_with_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 		port
 	);
 
-	let result = check_smtp_without_retry::<S>(to_email, host, port, domain, input).await;
+	let result = check_smtp_without_retry(to_email, host, port, domain, input).await;
 
 	log::debug!(
 		target: LOG_TARGET,
@@ -388,7 +374,7 @@ pub async fn check_smtp_with_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 					"[email={}] Potential greylisting detected, retrying.",
 					input.to_email,
 				);
-				check_smtp_with_retry::<S>(to_email, host, port, domain, input, count - 1).await
+				check_smtp_with_retry(to_email, host, port, domain, input, count - 1).await
 			}
 		}
 		_ => result,

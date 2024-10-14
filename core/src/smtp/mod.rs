@@ -209,7 +209,8 @@ pub async fn check_smtp(
 #[cfg(test)]
 mod tests {
 	use super::{check_smtp, CheckEmailInput, SmtpConnection, SmtpError};
-	use async_smtp::{error::Error, EmailAddress};
+	use crate::EmailAddress;
+	use async_smtp::error::Error;
 	use hickory_proto::rr::Name;
 	use std::{str::FromStr, time::Duration};
 	use tokio::runtime::Runtime;

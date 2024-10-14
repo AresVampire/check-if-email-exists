@@ -228,11 +228,11 @@ pub fn is_err_needs_rdns(e: &SmtpError) -> bool {
 mod tests {
 
 	use super::{is_err_ip_blacklisted, is_invalid};
+	use crate::EmailAddress;
 	use crate::SmtpError::SmtpError;
 	use async_smtp::{
 		error::Error,
 		response::{Category, Code, Detail, Response, Severity},
-		EmailAddress,
 	};
 	use std::str::FromStr;
 

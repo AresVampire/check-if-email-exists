@@ -20,7 +20,7 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Error;
-use async_smtp::{ClientSecurity, ClientTlsParameters, EmailAddress as AsyncSmtpEmailAddress};
+use async_smtp::EmailAddress as AsyncSmtpEmailAddress;
 use chrono::{DateTime, Utc};
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 
@@ -39,6 +39,18 @@ impl Serialize for EmailAddress {
 		S: Serializer,
 	{
 		ser_with_display(&self.0, serializer)
+	}
+}
+
+impl<'de> Deserialize<'de> for EmailAddress {
+	fn deserialize<D>(deserializer: D) -> Result<EmailAddress, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+		Ok(EmailAddress(
+			AsyncSmtpEmailAddress::from_str(&s).map_err(serde::de::Error::custom)?,
+		))
 	}
 }
 
@@ -63,6 +75,18 @@ impl EmailAddress {
 
 	pub fn into_inner(self) -> AsyncSmtpEmailAddress {
 		self.0
+	}
+}
+
+impl AsRef<AsyncSmtpEmailAddress> for EmailAddress {
+	fn as_ref(&self) -> &AsyncSmtpEmailAddress {
+		&self.0
+	}
+}
+
+impl AsRef<str> for EmailAddress {
+	fn as_ref(&self) -> &str {
+		self.0.as_ref()
 	}
 }
 
@@ -97,17 +121,6 @@ pub enum SmtpSecurity {
 impl Default for SmtpSecurity {
 	fn default() -> Self {
 		Self::Opportunistic
-	}
-}
-
-impl SmtpSecurity {
-	pub fn to_client_security(self, tls_params: ClientTlsParameters) -> ClientSecurity {
-		match self {
-			Self::None => ClientSecurity::None,
-			Self::Opportunistic => ClientSecurity::Opportunistic(tls_params),
-			Self::Required => ClientSecurity::Required(tls_params),
-			Self::Wrapper => ClientSecurity::Wrapper(tls_params),
-		}
 	}
 }
 
