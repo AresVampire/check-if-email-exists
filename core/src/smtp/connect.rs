@@ -23,7 +23,7 @@ use rand::{distributions::Alphanumeric, Rng, SeedableRng};
 use std::iter;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncWrite, BufStream};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
 use tokio_socks::tcp::Socks5Stream;
 
@@ -34,8 +34,10 @@ use crate::{
 	rules::{has_rule, Rule},
 	util::{constants::LOG_TARGET, input_output::CheckEmailInput},
 };
-trait AsyncBufReadWrite: AsyncBufRead + AsyncWrite {}
-impl AsyncBufReadWrite for BufStream<Socks5Stream<TcpStream>> {}
+
+// Define a new trait that combines AsyncRead, AsyncWrite, and Unpin
+trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {}
+impl<T: AsyncRead + AsyncWrite + Unpin> AsyncReadWrite for T {}
 
 /// Try to send an smtp command, close and return Err if fails.
 macro_rules! try_smtp (
@@ -51,7 +53,7 @@ macro_rules! try_smtp (
 );
 
 /// Attempt to connect to host via SMTP, and return SMTP client on success.
-async fn connect_to_host<S: AsyncBufReadWrite + Unpin>(
+async fn connect_to_host<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	domain: &str,
 	host: &str,
 	port: u16,
@@ -93,7 +95,7 @@ async fn connect_to_host<S: AsyncBufReadWrite + Unpin>(
 	let mut smtp_client = SmtpClient::new().hello_name(ClientId::Domain(input.hello_name.clone()));
 	// TODO .timeout(smtp_timeout);
 
-	let stream: BufStream<Box<dyn AsyncBufReadWrite + Unpin>> = if let Some(proxy) = &input.proxy {
+	let stream: BufStream<Box<dyn AsyncReadWrite>> = if let Some(proxy) = &input.proxy {
 		let proxy_addr = format!("{}:{}", proxy.host, proxy.port);
 		let target_addr = format!("{}:{}", host, port);
 		let socks_stream = match (&proxy.username, &proxy.password) {
@@ -108,10 +110,10 @@ async fn connect_to_host<S: AsyncBufReadWrite + Unpin>(
 			}
 			_ => Socks5Stream::connect(proxy_addr.into(), target_addr).await?,
 		};
-		BufStream::new(Box::new(socks_stream))
+		BufStream::new(Box::new(socks_stream) as Box<dyn AsyncReadWrite>)
 	} else {
 		let tcp_stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
-		BufStream::new(Box::new(tcp_stream))
+		BufStream::new(Box::new(tcp_stream) as Box<dyn AsyncReadWrite>)
 	};
 
 	let mut smtp_transport = SmtpTransport::new(smtp_client, stream).await?;
@@ -151,7 +153,7 @@ struct Deliverability {
 
 /// Check if `to_email` exists on host SMTP server. This is the core logic of
 /// this tool.
-async fn email_deliverable<S: AsyncBufReadWrite + Unpin>(
+async fn email_deliverable<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	smtp_transport: &mut SmtpTransport<S>,
 	to_email: &EmailAddress,
 ) -> Result<Deliverability, SmtpError> {
@@ -231,7 +233,7 @@ async fn email_deliverable<S: AsyncBufReadWrite + Unpin>(
 }
 
 /// Verify the existence of a catch-all on the domain.
-async fn smtp_is_catch_all<S: AsyncBufReadWrite + Unpin>(
+async fn smtp_is_catch_all<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	smtp_transport: &mut SmtpTransport<S>,
 	domain: &str,
 	host: &str,
@@ -264,7 +266,7 @@ async fn smtp_is_catch_all<S: AsyncBufReadWrite + Unpin>(
 	.map(|deliverability| deliverability.is_deliverable)
 }
 
-async fn create_smtp_future<S: AsyncBufReadWrite + Unpin>(
+async fn create_smtp_future<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,
@@ -317,7 +319,7 @@ async fn create_smtp_future<S: AsyncBufReadWrite + Unpin>(
 
 /// Get all email details we can from one single `EmailAddress`, without
 /// retries.
-async fn check_smtp_without_retry<S: AsyncBufReadWrite + Unpin>(
+async fn check_smtp_without_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,
@@ -339,7 +341,7 @@ async fn check_smtp_without_retry<S: AsyncBufReadWrite + Unpin>(
 /// Get all email details we can from one single `EmailAddress`.
 /// Retry the SMTP connection on error, in particular to avoid greylisting.
 #[async_recursion]
-pub async fn check_smtp_with_retry<S: AsyncBufReadWrite + Unpin>(
+pub async fn check_smtp_with_retry<S: AsyncBufRead + AsyncWrite + Unpin + Send>(
 	to_email: &EmailAddress,
 	host: &str,
 	port: u16,

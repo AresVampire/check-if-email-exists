@@ -46,6 +46,9 @@ pub enum SmtpError {
 	Microsoft365Error(Microsoft365Error),
 	/// Email is in the `skipped_domains` parameter.
 	SkippedDomain(String),
+	/// Error from async-smtp crate.
+	#[serde(serialize_with = "ser_with_display")]
+	AsyncSmtpError(AsyncSmtpError),
 	/// I/O error.
 	#[serde(serialize_with = "ser_with_display")]
 	IOError(std::io::Error),
@@ -79,6 +82,12 @@ impl From<HeadlessError> for SmtpError {
 impl From<Microsoft365Error> for SmtpError {
 	fn from(e: Microsoft365Error) -> Self {
 		SmtpError::Microsoft365Error(e)
+	}
+}
+
+impl From<AsyncSmtpError> for SmtpError {
+	fn from(e: AsyncSmtpError) -> Self {
+		SmtpError::SmtpError(e)
 	}
 }
 
