@@ -23,6 +23,7 @@ use super::yahoo::YahooError;
 use crate::util::ser_with_display::ser_with_display;
 use async_smtp::error::Error as AsyncSmtpError;
 use serde::Serialize;
+use std::time::Duration;
 use tokio_socks::Error as SocksError;
 
 /// Error occured connecting to this email server via SMTP.
@@ -52,6 +53,8 @@ pub enum SmtpError {
 	/// I/O error.
 	#[serde(serialize_with = "ser_with_display")]
 	IOError(std::io::Error),
+	/// Timeout error.
+	Timeout(Duration),
 }
 
 impl From<SocksError> for SmtpError {

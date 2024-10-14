@@ -22,7 +22,6 @@ use rand::rngs::SmallRng;
 use rand::{distributions::Alphanumeric, Rng, SeedableRng};
 use std::iter;
 use std::str::FromStr;
-use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
 use tokio_socks::tcp::Socks5Stream;
@@ -54,33 +53,15 @@ macro_rules! try_smtp (
 
 /// Attempt to connect to host via SMTP, and return SMTP client on success.
 async fn connect_to_host(
-	domain: &str,
 	host: &str,
 	port: u16,
 	input: &CheckEmailInput,
 ) -> Result<SmtpTransport<BufStream<Box<dyn AsyncReadWrite>>>, SmtpError> {
-	let smtp_timeout = if let Some(t) = input.smtp_timeout {
-		if has_rule(domain, host, &Rule::SmtpTimeout45s) {
-			let duration = t.max(Duration::from_secs(45));
-			log::debug!(
-				target: LOG_TARGET,
-				"[email={}] Bumping SMTP timeout to {duration:?} because of rule",
-				input.to_email,
-			);
-			Some(duration)
-		} else {
-			input.smtp_timeout
-		}
-	} else {
-		None
-	};
-
 	// hostname verification fails if it ends with '.', for example, using
 	// SOCKS5 proxies we can `io: incomplete` error.
 	let host = host.trim_end_matches('.').to_string();
 
 	let smtp_client = SmtpClient::new().hello_name(ClientId::Domain(input.hello_name.clone()));
-	// TODO .timeout(smtp_timeout);
 
 	let stream: BufStream<Box<dyn AsyncReadWrite>> = if let Some(proxy) = &input.proxy {
 		let target_addr = format!("{}:{}", host, port);
@@ -261,7 +242,7 @@ async fn create_smtp_future(
 ) -> Result<(bool, Deliverability), SmtpError> {
 	// FIXME If the SMTP is not connectable, we should actually return an
 	// Ok(SmtpDetails { can_connect_smtp: false, ... }).
-	let mut smtp_transport = connect_to_host(domain, host, port, input).await?;
+	let mut smtp_transport = connect_to_host(host, port, input).await?;
 
 	let is_catch_all = smtp_is_catch_all(&mut smtp_transport, domain, host, input)
 		.await
@@ -290,7 +271,7 @@ async fn create_smtp_future(
 				);
 
 				let _ = smtp_transport.quit().await;
-				smtp_transport = connect_to_host(domain, host, port, input).await?;
+				smtp_transport = connect_to_host(host, port, input).await?;
 				result = email_deliverable(&mut smtp_transport, to_email).await;
 			}
 		}
@@ -380,26 +361,3 @@ pub async fn check_smtp_with_retry(
 		_ => result,
 	}
 }
-
-// #[cfg(test)]
-// mod tests {
-// 	use super::*;
-
-// 	#[tokio::test]
-// 	async fn should_skip_catch_all() {
-// 		let smtp_client = SmtpClient::new("gmail.com".into());
-// 		let mut smtp_transport = smtp_client.into_transport();
-
-// 		let r = smtp_is_catch_all(
-// 			&mut smtp_transport,
-// 			"gmail.com",
-// 			"alt4.aspmx.l.google.com.",
-// 			&CheckEmailInput::default(),
-// 		)
-// 		.await;
-
-// 		assert!(!smtp_transport.is_connected()); // We shouldn't connect to google servers.
-// 		assert!(r.is_ok());
-// 		assert_eq!(false, r.unwrap())
-// 	}
-// }
