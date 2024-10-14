@@ -23,7 +23,7 @@
 use std::borrow::Cow;
 use std::env;
 
-use async_smtp::smtp::error::Error as AsyncSmtpError;
+use async_smtp::error::Error as AsyncSmtpError;
 use sentry::protocol::{Event, Exception, Level, Values};
 use tracing::{debug, info};
 

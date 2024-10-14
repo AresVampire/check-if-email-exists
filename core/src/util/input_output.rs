@@ -15,10 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::env;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use async_smtp::{ClientSecurity, ClientTlsParameters};
+use anyhow::Error;
+use async_smtp::{ClientSecurity, ClientTlsParameters, EmailAddress as AsyncSmtpEmailAddress};
 use chrono::{DateTime, Utc};
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 
@@ -26,6 +28,43 @@ use crate::misc::{MiscDetails, MiscError};
 use crate::mx::{MxDetails, MxError};
 use crate::smtp::{SmtpDebug, SmtpDetails, SmtpError, SmtpErrorDesc};
 use crate::syntax::SyntaxDetails;
+use crate::util::ser_with_display::ser_with_display;
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct EmailAddress(AsyncSmtpEmailAddress);
+
+impl Serialize for EmailAddress {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		ser_with_display(&self.0, serializer)
+	}
+}
+
+impl Display for EmailAddress {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		self.0.fmt(f)
+	}
+}
+
+impl FromStr for EmailAddress {
+	type Err = Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		Ok(EmailAddress(AsyncSmtpEmailAddress::from_str(s)?))
+	}
+}
+
+impl EmailAddress {
+	pub fn new(email: String) -> Result<Self, Error> {
+		Ok(EmailAddress(AsyncSmtpEmailAddress::new(email)?))
+	}
+
+	pub fn into_inner(self) -> AsyncSmtpEmailAddress {
+		self.0
+	}
+}
 
 /// Perform the email verification via a specified proxy. The usage of a proxy
 /// is optional.
@@ -550,7 +589,7 @@ impl Serialize for CheckEmailOutput {
 #[cfg(test)]
 mod tests {
 	use super::{CheckEmailOutput, DebugDetails};
-	use async_smtp::smtp::response::{Category, Code, Detail, Response, Severity};
+	use async_smtp::response::{Category, Code, Detail, Response, Severity};
 
 	#[test]
 	fn should_serialize_correctly() {

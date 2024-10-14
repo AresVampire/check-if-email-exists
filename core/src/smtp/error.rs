@@ -21,9 +21,9 @@ use super::outlook::microsoft365::Microsoft365Error;
 use super::parser;
 use super::yahoo::YahooError;
 use crate::util::ser_with_display::ser_with_display;
-use async_smtp::smtp::error::Error as AsyncSmtpError;
-use fast_socks5::SocksError;
+use async_smtp::error::Error as AsyncSmtpError;
 use serde::Serialize;
+use tokio_socks::Error as SocksError;
 
 /// Error occured connecting to this email server via SMTP.
 #[derive(Debug, Serialize)]
@@ -46,6 +46,9 @@ pub enum SmtpError {
 	Microsoft365Error(Microsoft365Error),
 	/// Email is in the `skipped_domains` parameter.
 	SkippedDomain(String),
+	/// I/O error.
+	#[serde(serialize_with = "ser_with_display")]
+	IOError(std::io::Error),
 }
 
 impl From<SocksError> for SmtpError {
@@ -76,6 +79,12 @@ impl From<HeadlessError> for SmtpError {
 impl From<Microsoft365Error> for SmtpError {
 	fn from(e: Microsoft365Error) -> Self {
 		SmtpError::Microsoft365Error(e)
+	}
+}
+
+impl From<std::io::Error> for SmtpError {
+	fn from(e: std::io::Error) -> Self {
+		SmtpError::IOError(e)
 	}
 }
 

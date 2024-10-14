@@ -17,7 +17,8 @@
 //! Parse the SMTP responses to get information about the email address.
 
 use super::error::SmtpError;
-use async_smtp::{smtp::error::Error as AsyncSmtpError, EmailAddress};
+use crate::EmailAddress;
+use async_smtp::error::Error as AsyncSmtpError;
 
 /// is_invalid checks for SMTP responses meaning that the email is invalid,
 /// i.e. that the mailbox doesn't exist.
@@ -229,8 +230,8 @@ mod tests {
 	use super::{is_err_ip_blacklisted, is_invalid};
 	use crate::SmtpError::SmtpError;
 	use async_smtp::{
-		smtp::error::Error,
-		smtp::response::{Category, Code, Detail, Response, Severity},
+		error::Error,
+		response::{Category, Code, Detail, Response, Severity},
 		EmailAddress,
 	};
 	use std::str::FromStr;

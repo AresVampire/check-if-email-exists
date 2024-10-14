@@ -27,7 +27,7 @@ mod yahoo;
 use std::default::Default;
 use std::env;
 
-use async_smtp::EmailAddress;
+use crate::EmailAddress;
 use hickory_proto::rr::Name;
 use serde::{Deserialize, Serialize};
 
@@ -209,7 +209,7 @@ pub async fn check_smtp(
 #[cfg(test)]
 mod tests {
 	use super::{check_smtp, CheckEmailInput, SmtpConnection, SmtpError};
-	use async_smtp::{smtp::error::Error, EmailAddress};
+	use async_smtp::{error::Error, EmailAddress};
 	use hickory_proto::rr::Name;
 	use std::{str::FromStr, time::Duration};
 	use tokio::runtime::Runtime;
